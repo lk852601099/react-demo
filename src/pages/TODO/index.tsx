@@ -1,106 +1,197 @@
 import { Button, Checkbox, Input, Segmented } from 'antd';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useState } from 'react';
 interface TableList {
   key: number;
   text: string;
   checked: boolean;
   del: false;
 }
+
+interface TableObj {
+  [key: string]: TableList[];
+}
+
+const segmentOptions = [
+  {
+    label: '已完成',
+    value: 'complete',
+  },
+  {
+    label: '未完成',
+    value: 'incomplete',
+  },
+  {
+    label: '已删除',
+    value: 'del',
+  },
+];
 const TodoList: React.FC = () => {
   const [inputV, setInputV] = useState<string>('');
-  const [alignValue, setAlignValue] = useState<string>('');
-  const [tableList, setTableList] = useState<TableList[]>([]);
-  const [deepTableList, setDeepTableList] = useState<TableList[]>([]);
+  const [alignValue, setAlignValue] = useState<string>('incomplete');
+  const [tableObj, setTableObj] = useState<TableObj>({
+    complete: [],
+    incomplete: [],
+    del: [],
+  });
   const [channel] = useState(() => new BroadcastChannel('profiler'));
-  useEffect(() => {
-    return () => {
-      channel.close();
-    };
-  }, []);
+
   // 添加内容
   const addTodoList = useCallback(() => {
-    if (!inputV.trim()) {
-      return;
-    }
-    setTableList([
-      ...tableList,
-      { key: Date.now(), text: inputV, checked: false, del: false },
-    ]);
-    channel.postMessage(inputV);
+    if (!inputV.trim()) return;
+    setTableObj((prev) => ({
+      ...prev,
+      incomplete: [
+        ...(prev.incomplete || []),
+        { key: Date.now(), text: inputV, checked: false, del: false },
+      ],
+    }));
     setInputV('');
-    setDeepTableList([
-      ...deepTableList,
-      { key: Date.now(), text: inputV, checked: false, del: false },
-    ]);
   }, [inputV, channel]);
+
   // 删除
-  const delTodo = (key: number) => {
-    setTableList(
-      [...tableList].filter(
-        (item: { key: number; del: boolean }) => item.key !== key,
-      ),
-    );
-    setDeepTableList(
-      [...deepTableList].map((item: { key: number; del: boolean }) => {
-        if (item.key === key) {
+  const dealTodo = (key: number, type: string) => {
+    // const prev = JSON.parse(JSON.stringify(tableObj));
+    setTableObj((prev: any) => {
+      const updatedList = (prev[alignValue] || []).filter(
+        (item: { key: number }) => item.key === key,
+      );
+      console.log('updatedList', updatedList);
+      if (type === 'del') {
+        // 如果是已完成，删除已完成的内容
+        if (alignValue === 'complete') {
           return {
-            ...item,
-            del: true,
+            ...prev,
+            complete: prev.complete.filter(
+              (item: { key: number }) => item.key !== key,
+            ),
+            del: [
+              ...prev.del,
+              ...updatedList.map((item: { del: boolean }) => ({
+                ...item,
+                del: true,
+              })),
+            ],
           };
         }
-        return item;
-      }) as TableList[],
-    );
+        // 如果是未完成，删除未完成的内容
+        if (alignValue === 'incomplete') {
+          return {
+            ...prev,
+            incomplete: prev.incomplete.filter(
+              (item: { key: number }) => item.key !== key,
+            ),
+            del: [
+              ...prev.del,
+              ...updatedList.map((item: { del: boolean }) => ({
+                ...item,
+                del: true,
+              })),
+            ],
+          };
+        }
+      } else {
+        // 恢复 如果是未完成
+        const dealItem = prev.del.find(
+          (item: { key: number }) => item.key === key,
+        );
+        const filterDel = prev.del.filter(
+          (item: { key: number }) => item.key !== key,
+        );
+        dealItem.del = false;
+
+        if (dealItem?.checked) {
+          prev.complete = [...prev.complete, dealItem];
+        } else {
+          prev.incomplete = [...prev.incomplete, dealItem];
+        }
+        console.log('dealItem', dealItem, filterDel, {
+          ...prev,
+          del: filterDel,
+        });
+        return {
+          ...prev,
+          del: filterDel,
+        };
+      }
+    });
   };
 
   // 筛选
   const changeCheck = (checked: boolean, key: number) => {
-    const newArr = [...tableList].map(
-      (item: { key: number; checked: boolean }) => {
-        if (item.key === key) {
+    // const prev = JSON.parse(JSON.stringify(tableObj));
+    setTableObj((prev: any) => {
+      // 未完成 -> 已完成
+      const updatedList = (prev[alignValue] || []).map(
+        (item: { key: number }) => {
+          if (item.key !== key) return item;
+          return { ...item, checked };
+        },
+      );
+      // 如果是已完成，删除已完成的内容
+      if (alignValue === 'complete') {
+        const checkComplete = updatedList.filter(
+          (item: { checked: boolean }) => !item.checked,
+        );
+
+        const newIncomplete = [...prev.incomplete, ...checkComplete];
+        return {
+          ...prev,
+          complete: updatedList.filter(
+            (item: { checked: boolean }) => item.checked,
+          ),
+          incomplete: newIncomplete || [],
+        };
+      }
+      // 如果是未完成，删除已完成的内容 添加已完成的内容到已完成列表
+      if (alignValue === 'incomplete') {
+        const checkComplete = updatedList.filter(
+          (item: { checked: boolean }) => item.checked,
+        );
+
+        const newComplete = [...prev.complete, ...checkComplete];
+
+        return {
+          ...prev,
+          incomplete: updatedList.filter(
+            (item: { checked: boolean }) => !item.checked,
+          ),
+          complete: newComplete || [],
+        };
+      }
+      // 如果是已删除，删除已删除的内容
+      if (alignValue === 'del') {
+        // 恢复已删除的内容
+        const restoredDelItem = prev.del.find(
+          (item: { key: number }) => item.key === key,
+        );
+        const filterDel = prev.del.filter(
+          (item: { key: number }) => item.key !== key,
+        );
+        restoredDelItem.checked = checked;
+        if (checked) {
           return {
-            ...item,
-            checked,
+            ...prev,
+            del: filterDel,
+            complete: [...prev.complete, restoredDelItem],
           };
         }
-        return item;
-      },
-    );
-    setTableList([...newArr] as TableList[]);
-    setDeepTableList(
-      [...deepTableList].map((item: { key: number; checked: boolean }) => {
-        if (item.key === key) {
-          return {
-            ...item,
-            checked,
-          };
-        }
-        return item;
-      }) as TableList[],
-    );
+
+        return {
+          ...prev,
+          del: filterDel,
+          incomplete: [...prev.incomplete, restoredDelItem],
+        };
+      }
+    });
   };
 
-  const changeAlignValue = (value: string) => {
-    setAlignValue(value);
-    if (value === '已完成') {
-      setTableList(
-        [...deepTableList].filter((item) => item.checked && !item.del),
-      );
-    } else if (value === '未完成') {
-      setTableList(
-        [...deepTableList].filter((item) => !item.checked && !item.del),
-      );
-    } else if (value === '已删除') {
-      setTableList([...deepTableList].filter((item) => item.del));
-    } else {
-      setTableList([...[...deepTableList]]);
-    }
-  };
+  const changeAlignValue = (value: string) => setAlignValue(value);
+
   return (
     <>
       <h3>TodoList</h3>
       <div style={{ width: '20%' }}>
-        <div style={{ display: 'flex' }}>
+        <div style={{ display: 'flex', gap: 8 }}>
           <Input value={inputV} onChange={(e) => setInputV(e.target.value)} />
           <Button type="primary" onClick={addTodoList}>
             添加
@@ -110,11 +201,16 @@ const TodoList: React.FC = () => {
           value={alignValue}
           style={{ margin: '8px 0' }}
           onChange={changeAlignValue}
-          options={['已完成', '未完成', '已删除']}
+          options={segmentOptions}
         />
       </div>
-      {tableList.map(
-        (item: { key: number; text: string; checked: boolean }) => (
+      {(tableObj[alignValue] || []).map(
+        (item: {
+          key: number;
+          text: string;
+          checked: boolean;
+          del: boolean;
+        }) => (
           <div
             style={{
               display: 'flex',
@@ -136,12 +232,13 @@ const TodoList: React.FC = () => {
             >
               {item.text}
             </span>
-            <Button
-              onClick={() => delTodo(item.key)}
-              hidden={alignValue === '已删除'}
-            >
-              删除
-            </Button>
+            {item.del ? (
+              <Button onClick={() => dealTodo(item.key, 'restore')}>
+                恢复
+              </Button>
+            ) : (
+              <Button onClick={() => dealTodo(item.key, 'del')}>删除</Button>
+            )}
           </div>
         ),
       )}

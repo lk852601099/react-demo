@@ -38,4 +38,10 @@ export default [
     path: 'todoList',
     component: './TODO',
   },
+  {
+    name: 'DndKit',
+    path: 'dndKit',
+    component: './DndKit',
+    layout: false
+  }
 ];
